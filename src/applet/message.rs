@@ -25,6 +25,7 @@ pub enum Message {
     OrderChanged(crate::applet::order::Order),
     TogglePin(ItemKey),
     ToggleColourIcons(bool),
+    SelectHubSide(usize),
     DragStart(ItemKey),
     DragOver(ItemKey),
     DragEnd,

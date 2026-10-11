@@ -1,17 +1,49 @@
 use cosmic::cosmic_config::{Config, ConfigGet, ConfigSet, CosmicConfigEntry, Error};
+use serde::{Deserialize, Serialize};
 
 use crate::applet::pins::CONFIG_VERSION;
 
 pub const COLOUR_ICONS_KEY: &str = "colour-icons";
+pub const HUB_SIDE_KEY: &str = "hub-side";
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
+pub enum HubSide {
+    Left,
+    #[default]
+    Right,
+}
+
+impl HubSide {
+    pub const ALL: [Self; 2] = [Self::Left, Self::Right];
+
+    pub fn at(index: usize) -> Option<Self> {
+        Self::ALL.get(index).copied()
+    }
+
+    pub fn index(self) -> usize {
+        match self {
+            Self::Left => 0,
+            Self::Right => 1,
+        }
+    }
+
+    pub fn leads(self) -> bool {
+        matches!(self, Self::Left)
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Appearance {
     colour_icons: bool,
+    hub_side: HubSide,
 }
 
 impl Default for Appearance {
     fn default() -> Self {
-        Self { colour_icons: true }
+        Self {
+            colour_icons: true,
+            hub_side: HubSide::default(),
+        }
     }
 }
 
@@ -23,19 +55,42 @@ impl Appearance {
     pub fn set_colour_icons(&mut self, colour_icons: bool) {
         self.colour_icons = colour_icons;
     }
+
+    pub fn hub_side(self) -> HubSide {
+        self.hub_side
+    }
+
+    pub fn set_hub_side(&mut self, hub_side: HubSide) {
+        self.hub_side = hub_side;
+    }
 }
 
 impl CosmicConfigEntry for Appearance {
     const VERSION: u64 = CONFIG_VERSION;
 
     fn write_entry(&self, config: &Config) -> Result<(), Error> {
-        config.set(COLOUR_ICONS_KEY, self.colour_icons)
+        config.set(COLOUR_ICONS_KEY, self.colour_icons)?;
+        config.set(HUB_SIDE_KEY, self.hub_side)
     }
 
     fn get_entry(config: &Config) -> Result<Self, (Vec<Error>, Self)> {
+        let mut appearance = Self::default();
+        let mut errors = Vec::new();
+
         match config.get::<bool>(COLOUR_ICONS_KEY) {
-            Ok(colour_icons) => Ok(Self { colour_icons }),
-            Err(error) => Err((vec![error], Self::default())),
+            Ok(colour_icons) => appearance.colour_icons = colour_icons,
+            Err(error) => errors.push(error),
+        }
+
+        match config.get::<HubSide>(HUB_SIDE_KEY) {
+            Ok(hub_side) => appearance.hub_side = hub_side,
+            Err(error) => errors.push(error),
+        }
+
+        if errors.is_empty() {
+            Ok(appearance)
+        } else {
+            Err((errors, appearance))
         }
     }
 
@@ -48,16 +103,24 @@ impl CosmicConfigEntry for Appearance {
         let mut updated = Vec::new();
 
         for key in changed_keys {
-            if key.as_ref() != COLOUR_ICONS_KEY {
-                continue;
-            }
-            match config.get::<bool>(COLOUR_ICONS_KEY) {
-                Ok(colour_icons) if self.colour_icons != colour_icons => {
-                    self.colour_icons = colour_icons;
-                    updated.push(COLOUR_ICONS_KEY);
-                }
-                Ok(_) => {}
-                Err(error) => errors.push(error),
+            match key.as_ref() {
+                COLOUR_ICONS_KEY => match config.get::<bool>(COLOUR_ICONS_KEY) {
+                    Ok(colour_icons) if self.colour_icons != colour_icons => {
+                        self.colour_icons = colour_icons;
+                        updated.push(COLOUR_ICONS_KEY);
+                    }
+                    Ok(_) => {}
+                    Err(error) => errors.push(error),
+                },
+                HUB_SIDE_KEY => match config.get::<HubSide>(HUB_SIDE_KEY) {
+                    Ok(hub_side) if self.hub_side != hub_side => {
+                        self.hub_side = hub_side;
+                        updated.push(HUB_SIDE_KEY);
+                    }
+                    Ok(_) => {}
+                    Err(error) => errors.push(error),
+                },
+                _ => {}
             }
         }
 
@@ -87,13 +150,19 @@ impl AppearanceStore {
             return Appearance::default();
         };
 
+        let mut appearance = Appearance::default();
+
         match config.get::<bool>(COLOUR_ICONS_KEY) {
-            Ok(colour_icons) => Appearance { colour_icons },
-            Err(error) => {
-                tracing::debug!(%error, "no appearance stored yet");
-                Appearance::default()
-            }
+            Ok(colour_icons) => appearance.colour_icons = colour_icons,
+            Err(error) => tracing::debug!(%error, "no icon preference stored yet"),
         }
+
+        match config.get::<HubSide>(HUB_SIDE_KEY) {
+            Ok(hub_side) => appearance.hub_side = hub_side,
+            Err(error) => tracing::debug!(%error, "no side preference stored yet"),
+        }
+
+        appearance
     }
 
     pub fn save(&self, appearance: Appearance) {
@@ -102,7 +171,11 @@ impl AppearanceStore {
         };
 
         if let Err(error) = config.set(COLOUR_ICONS_KEY, appearance.colour_icons) {
-            tracing::warn!(%error, "could not store the appearance");
+            tracing::warn!(%error, "could not store the icon preference");
+        }
+
+        if let Err(error) = config.set(HUB_SIDE_KEY, appearance.hub_side) {
+            tracing::warn!(%error, "could not store the side preference");
         }
     }
 }
@@ -134,10 +207,26 @@ mod tests {
     }
 
     #[test]
-    fn the_original_icon_preference_survives_a_round_trip() {
+    fn the_hub_button_sits_at_the_right_of_the_strip_until_the_user_moves_it() {
+        assert_eq!(Appearance::default().hub_side(), HubSide::Right);
+        assert!(!HubSide::Right.leads());
+        assert!(HubSide::Left.leads());
+    }
+
+    #[test]
+    fn every_side_survives_the_trip_through_its_dropdown_index() {
+        for side in HubSide::ALL {
+            assert_eq!(HubSide::at(side.index()), Some(side));
+        }
+        assert_eq!(HubSide::at(HubSide::ALL.len()), None);
+    }
+
+    #[test]
+    fn the_chosen_preferences_survive_a_round_trip() {
         let (store, path) = test_store("appearance-round-trip");
         let mut appearance = Appearance::default();
         appearance.set_colour_icons(false);
+        appearance.set_hub_side(HubSide::Left);
 
         store.save(appearance);
 
@@ -149,7 +238,23 @@ mod tests {
     fn a_missing_preference_keeps_icons_adapted_to_the_theme() {
         let (store, path) = test_store("appearance-default");
 
-        assert!(store.load().colour_icons());
+        assert_eq!(store.load(), Appearance::default());
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn one_stored_preference_does_not_drag_the_other_away_from_its_default() {
+        let (store, path) = test_store("appearance-partial");
+        let config = store.config.as_ref().unwrap();
+        config.set(HUB_SIDE_KEY, HubSide::Left).unwrap();
+
+        let appearance = store.load();
+
+        assert_eq!(appearance.hub_side(), HubSide::Left);
+        assert!(
+            appearance.colour_icons(),
+            "the icon preference was never written, so it keeps its default"
+        );
         let _ = std::fs::remove_dir_all(path);
     }
 
@@ -162,12 +267,32 @@ mod tests {
 
         let (errors, changed) = appearance.update_keys(config, &[COLOUR_ICONS_KEY]);
 
-        assert!(errors.is_empty());
+        assert!(errors.is_empty(), "nothing failed to read");
         assert_eq!(changed, [COLOUR_ICONS_KEY]);
         assert!(!appearance.colour_icons());
 
         let (_, unchanged) = appearance.update_keys(config, &[COLOUR_ICONS_KEY]);
         assert!(unchanged.is_empty(), "an identical reload is not a change");
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn a_changed_side_is_reported_without_touching_the_icon_preference() {
+        let (store, path) = test_store("appearance-side-change");
+        let config = store.config.as_ref().unwrap();
+        config.set(HUB_SIDE_KEY, HubSide::Left).unwrap();
+        let mut appearance = Appearance::default();
+
+        let (errors, changed) = appearance.update_keys(config, &[COLOUR_ICONS_KEY, HUB_SIDE_KEY]);
+
+        assert_eq!(
+            errors.len(),
+            1,
+            "only the key that was never written fails to read"
+        );
+        assert_eq!(changed, [HUB_SIDE_KEY]);
+        assert_eq!(appearance.hub_side(), HubSide::Left);
+        assert!(appearance.colour_icons());
         let _ = std::fs::remove_dir_all(path);
     }
 }

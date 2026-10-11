@@ -38,6 +38,7 @@ use crate::core::{CoreCommand, CoreHandle};
 use crate::{fl, links};
 
 const LINKS: usize = 3;
+const APPEARANCE: usize = 2;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum PopupState {
@@ -106,33 +107,6 @@ enum PendingTokenAction {
     },
 }
 
-fn detect_wing(panel: &str) -> popup::Wing {
-    use cosmic::cosmic_config::{Config, ConfigGet};
-
-    let Ok(config) = Config::new(&format!("com.system76.CosmicPanel.{panel}"), 1) else {
-        return popup::Wing::default();
-    };
-
-    if let Ok(Some((start, end))) =
-        config.get::<Option<(Vec<String>, Vec<String>)>>("plugins_wings")
-    {
-        if start.iter().any(|plugin| plugin == APP_ID) {
-            return popup::Wing::Start;
-        }
-        if end.iter().any(|plugin| plugin == APP_ID) {
-            return popup::Wing::End;
-        }
-    }
-
-    if let Ok(Some(center)) = config.get::<Option<Vec<String>>>("plugins_center")
-        && center.iter().any(|plugin| plugin == APP_ID)
-    {
-        return popup::Wing::Center;
-    }
-
-    popup::Wing::default()
-}
-
 fn symbolic_ink() -> cosmic::theme::Svg {
     thread_local! {
         static INK: cosmic::theme::Svg = cosmic::theme::Svg::custom(|theme: &cosmic::Theme| {
@@ -192,7 +166,6 @@ pub struct StatusHub {
     appearance: appearance::Appearance,
     draft_appearance: Option<appearance::Appearance>,
     dragging: Option<crate::core::model::ItemKey>,
-    wing: popup::Wing,
     pin_store: pins::PinStore,
     appearance_store: appearance::AppearanceStore,
     menu: Option<Arc<MenuModel>>,
@@ -219,6 +192,10 @@ const ICON_RETRY_DELAYS: [Duration; 6] = [
 impl StatusHub {
     fn item_icon_size(&self) -> u16 {
         self.core.applet.suggested_size(true).0
+    }
+
+    fn hub_side(&self) -> appearance::HubSide {
+        self.appearance.hub_side()
     }
 
     fn overlap(&self) -> u16 {
@@ -452,6 +429,35 @@ impl StatusHub {
         list::button(row).on_press(on_press)
     }
 
+    fn settings_dropdown_row<'a>(
+        handle: icon::Handle,
+        label: String,
+        options: Vec<String>,
+        selected: usize,
+        on_select: impl Fn(usize) -> Message + Send + Sync + 'static,
+    ) -> Element<'a, Message> {
+        cosmic::widget::row::with_children(vec![
+            Self::symbol(handle, popup::ROW_ICON),
+            text::body(label)
+                .width(Length::Fill)
+                .ellipsize(Ellipsize::End(EllipsizeHeightLimit::Lines(1)))
+                .into(),
+            cosmic::widget::dropdown(options, Some(selected), on_select)
+                .padding(popup::dropdown_padding())
+                .into(),
+        ])
+        .align_y(cosmic::iced::Alignment::Center)
+        .spacing(cosmic::theme::spacing().space_xs)
+        .into()
+    }
+
+    fn hub_side_label(side: appearance::HubSide) -> String {
+        match side {
+            appearance::HubSide::Left => fl!("hub-side-left"),
+            appearance::HubSide::Right => fl!("hub-side-right"),
+        }
+    }
+
     fn empty_row<'a>() -> Element<'a, Message> {
         cosmic::widget::row::with_children(vec![
             Self::symbol(symbols::empty(), popup::ROW_ICON),
@@ -517,6 +523,7 @@ impl StatusHub {
         let body = match self.body {
             PopupBody::Items => self.items_height(),
             PopupBody::Settings => popup::settings_body_height(
+                APPEARANCE,
                 self.settings_rows().len(),
                 LINKS,
                 popup::list_row_spacing(),
@@ -629,19 +636,24 @@ impl StatusHub {
         );
         let rows = self.settings_rows();
 
-        let colour_icons = self
-            .draft_appearance
-            .unwrap_or(self.appearance)
-            .colour_icons();
+        let draft_appearance = self.draft_appearance.unwrap_or(self.appearance);
         let appearance = Self::settings_section(
             symbols::appearance(),
             fl!("appearance"),
-            Self::settings_card().add(Self::settings_toggle_row(
-                symbols::droplet(),
-                fl!("colour-icons"),
-                colour_icons,
-                Message::ToggleColourIcons,
-            )),
+            Self::settings_card()
+                .add(Self::settings_toggle_row(
+                    symbols::droplet(),
+                    fl!("colour-icons"),
+                    draft_appearance.colour_icons(),
+                    Message::ToggleColourIcons,
+                ))
+                .add(Self::settings_dropdown_row(
+                    symbols::side(),
+                    fl!("hub-side"),
+                    appearance::HubSide::ALL.map(Self::hub_side_label).to_vec(),
+                    draft_appearance.hub_side().index(),
+                    Message::SelectHubSide,
+                )),
         );
 
         let card = Self::settings_card();
@@ -1206,12 +1218,39 @@ impl StatusHub {
         pinned
             .iter()
             .position(|item| &item.address == address)
-            .map(|index| popup::pinned_slot(self.wing, index))
+            .map(|index| popup::pinned_slot(self.hub_side(), index))
     }
 
     fn panel_slots(&self) -> usize {
         let (panel, _) = self.partition_items(&self.pins);
         panel.len() + 1
+    }
+
+    fn on_colour_icons(&mut self, colour_icons: bool) -> Task<Message> {
+        let Some(appearance) = self.draft_appearance.as_mut() else {
+            return Task::none();
+        };
+        if appearance.colour_icons() == colour_icons {
+            return Task::none();
+        }
+
+        appearance.set_colour_icons(colour_icons);
+        cosmic::task::message(Message::Relayout)
+    }
+
+    fn on_hub_side(&mut self, index: usize) -> Task<Message> {
+        let Some(side) = appearance::HubSide::at(index) else {
+            return Task::none();
+        };
+        let Some(appearance) = self.draft_appearance.as_mut() else {
+            return Task::none();
+        };
+        if appearance.hub_side() == side {
+            return Task::none();
+        }
+
+        appearance.set_hub_side(side);
+        cosmic::task::message(Message::Relayout)
     }
 
     fn apply_order(&mut self, order: order::Order) -> Task<Message> {
@@ -1256,7 +1295,7 @@ impl StatusHub {
             None,
         );
         settings.positioner.anchor_rect = popup::panel_slot_rect(
-            popup::hub_slot(self.wing, self.panel_slots()),
+            popup::hub_slot(self.hub_side(), self.panel_slots()),
             self.button_size(),
             self.lead(),
             self.core.applet.is_horizontal(),
@@ -1291,8 +1330,6 @@ impl cosmic::Application for StatusHub {
 
     fn init(core: Core, tray: Self::Flags) -> (Self, Task<Message>) {
         let snapshot = tray.snapshot();
-        let wing = detect_wing(&core.applet.panel_type.to_string());
-        tracing::debug!(?wing, "panel placement");
         let pin_store = pins::PinStore::open(APP_ID);
         let pins = pin_store.load();
         let appearance_store = appearance::AppearanceStore::open(APP_ID);
@@ -1311,7 +1348,6 @@ impl cosmic::Application for StatusHub {
                 appearance,
                 draft_appearance: None,
                 dragging: None,
-                wing,
                 pin_store,
                 appearance_store,
                 menu: None,
@@ -1454,16 +1490,9 @@ impl cosmic::Application for StatusHub {
                 cosmic::task::message(Message::Relayout)
             }
 
-            Message::ToggleColourIcons(colour_icons) => {
-                let Some(appearance) = self.draft_appearance.as_mut() else {
-                    return Task::none();
-                };
-                if appearance.colour_icons() == colour_icons {
-                    return Task::none();
-                }
-                appearance.set_colour_icons(colour_icons);
-                cosmic::task::message(Message::Relayout)
-            }
+            Message::ToggleColourIcons(colour_icons) => self.on_colour_icons(colour_icons),
+
+            Message::SelectHubSide(index) => self.on_hub_side(index),
 
             Message::OpenLink(url) => cosmic::task::future(async move {
                 links::open(url).await;
@@ -1507,7 +1536,7 @@ impl cosmic::Application for StatusHub {
 
         let hub: Element<'_, Message> = hub.into();
         let buttons = pinned.into_iter().map(|item| self.item_button(item));
-        let slots: Vec<Element<'_, Message>> = if popup::hub_leads(self.wing) {
+        let slots: Vec<Element<'_, Message>> = if self.hub_side().leads() {
             std::iter::once(hub).chain(buttons).collect()
         } else {
             buttons.chain(std::iter::once(hub)).collect()

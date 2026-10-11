@@ -23,6 +23,7 @@ bundled! {
     grip => "grip-symbolic.svg",
     link => "link-symbolic.svg",
     person => "person-symbolic.svg",
+    side => "side-symbolic.svg",
 }
 
 macro_rules! named {

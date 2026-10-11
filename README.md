@@ -19,7 +19,8 @@ so they stay one click away.
 
 - Collects every StatusNotifierItem on the session bus behind one panel button.
 - Pins the items you choose to the panel, remembered between sessions and kept in step across
-  every panel. Pinned items keep their mouse controls and their menu.
+  every panel. Pinned items keep their mouse controls and their menu, and the hub's own button
+  sits at whichever end of the strip you pick.
 - Keeps a popup item's menu in the same card, separated from the icons by a divider; menus opened
   from pinned items are anchored to their panel slot.
 - Ships in English, Brazilian Portuguese, Dutch, French, German, Italian, Russian, Simplified

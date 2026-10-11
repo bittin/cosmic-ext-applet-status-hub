@@ -7,6 +7,8 @@ use cosmic::iced::widget::scrollable::{Direction, Scrollbar};
 use cosmic::iced::{Alignment, Border, Color, Length, Limits, Rectangle, Shadow, Size};
 use cosmic::widget::{autosize, container, divider, flex_row, mouse_area, scrollable, text};
 
+use crate::applet::appearance::HubSide;
+
 pub const SURFACE_WIDTH: u16 = 360;
 const MAX_HEIGHT: u16 = 1080;
 pub const SETTINGS_MAX_HEIGHT: u16 = 800;
@@ -19,6 +21,7 @@ pub const SECTION_ICON: u16 = 14;
 pub const ROW_ICON: u16 = 16;
 
 pub const LIST_MIN_ROW: u16 = 32;
+const DROPDOWN_TEXT: u16 = 17;
 
 const SECTION_HEADER: u16 = 21;
 const SECTION_HEADER_SPACING: u16 = 12;
@@ -46,6 +49,13 @@ pub fn list_row_spacing() -> u16 {
 
 pub fn list_row_padding(spacing: u16) -> [u16; 2] {
     [spacing, LIST_ROW_INSET]
+}
+
+pub fn dropdown_padding() -> [u16; 2] {
+    [
+        LIST_MIN_ROW.saturating_sub(DROPDOWN_TEXT) / 2,
+        LIST_ROW_INSET / 2,
+    ]
 }
 
 pub fn list_row_height(spacing: u16) -> u16 {
@@ -161,8 +171,14 @@ pub fn header_height(control: u16, vertical_padding: u16) -> u16 {
     control.saturating_add(vertical_padding.saturating_mul(2))
 }
 
-pub fn settings_body_height(rows: usize, links: usize, spacing: u16, padding: u16) -> u16 {
-    section_height(1, spacing)
+pub fn settings_body_height(
+    appearance: usize,
+    rows: usize,
+    links: usize,
+    spacing: u16,
+    padding: u16,
+) -> u16 {
+    section_height(appearance.max(1), spacing)
         .saturating_add(section_spacing())
         .saturating_add(section_height(links.max(1), spacing))
         .saturating_add(section_spacing())
@@ -178,28 +194,16 @@ pub fn settings_body_max_height() -> u16 {
         .max(1)
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Wing {
-    Start,
-    Center,
-    #[default]
-    End,
-}
-
-pub fn hub_leads(wing: Wing) -> bool {
-    matches!(wing, Wing::Start)
-}
-
-pub fn hub_slot(wing: Wing, slots: usize) -> usize {
-    if hub_leads(wing) {
+pub fn hub_slot(side: HubSide, slots: usize) -> usize {
+    if side.leads() {
         0
     } else {
         slots.saturating_sub(1)
     }
 }
 
-pub fn pinned_slot(wing: Wing, index: usize) -> usize {
-    if hub_leads(wing) { index + 1 } else { index }
+pub fn pinned_slot(side: HubSide, index: usize) -> usize {
+    if side.leads() { index + 1 } else { index }
 }
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -674,8 +678,8 @@ mod tests {
     #[test]
     fn the_settings_list_is_as_tall_as_the_rows_it_holds() {
         assert_eq!(
-            settings_body_height(3, 2, 4, 12),
-            section_height(1, 4)
+            settings_body_height(2, 3, 2, 4, 12),
+            section_height(2, 4)
                 + section_spacing()
                 + section_height(2, 4)
                 + section_spacing()
@@ -686,13 +690,13 @@ mod tests {
 
     #[test]
     fn the_links_section_is_paid_for_even_when_the_tray_is_empty() {
-        assert!(settings_body_height(0, 3, 4, 12) > settings_body_height(0, 1, 4, 12));
+        assert!(settings_body_height(1, 0, 3, 4, 12) > settings_body_height(1, 0, 1, 4, 12));
     }
 
     #[test]
     fn every_section_is_measured_by_the_same_row_height() {
         assert_eq!(
-            settings_body_height(1, 1, 4, 12),
+            settings_body_height(1, 1, 1, 4, 12),
             3 * section_height(1, 4) + 2 * section_spacing() + 24,
             "the preference row costs no more than any other single row"
         );
@@ -740,13 +744,13 @@ mod tests {
 
     #[test]
     fn a_denser_theme_gives_the_same_list_a_shorter_body() {
-        assert!(settings_body_height(4, 3, 4, 12) < settings_body_height(4, 3, 12, 12));
+        assert!(settings_body_height(1, 4, 3, 4, 12) < settings_body_height(1, 4, 3, 12, 12));
     }
 
     #[test]
     fn many_settings_rows_scroll_inside_a_bounded_popup() {
         assert_eq!(
-            settings_body_height(usize::MAX, 3, 4, 12),
+            settings_body_height(1, usize::MAX, 3, 4, 12),
             settings_body_max_height()
         );
         assert_eq!(
@@ -766,28 +770,28 @@ mod tests {
     }
 
     #[test]
-    fn the_hub_sits_on_the_edge_facing_away_from_the_screen_centre() {
-        assert!(hub_leads(Wing::Start));
-        assert!(!hub_leads(Wing::End));
-        assert!(!hub_leads(Wing::Center));
-    }
-
-    #[test]
     fn the_hub_slot_is_constant_wherever_it_leads() {
         for slots in 1..6 {
-            assert_eq!(hub_slot(Wing::Start, slots), 0);
+            assert_eq!(hub_slot(HubSide::Left, slots), 0);
         }
-        assert_eq!(hub_slot(Wing::End, 4), 3);
-        assert_eq!(hub_slot(Wing::Center, 4), 3);
-        assert_eq!(hub_slot(Wing::End, 0), 0);
+        assert_eq!(hub_slot(HubSide::Right, 4), 3);
+        assert_eq!(hub_slot(HubSide::Right, 0), 0);
     }
 
     #[test]
     fn pinned_items_start_after_a_leading_hub() {
-        assert_eq!(pinned_slot(Wing::Start, 0), 1);
-        assert_eq!(pinned_slot(Wing::Start, 2), 3);
-        assert_eq!(pinned_slot(Wing::End, 0), 0);
-        assert_eq!(pinned_slot(Wing::End, 2), 2);
+        assert_eq!(pinned_slot(HubSide::Left, 0), 1);
+        assert_eq!(pinned_slot(HubSide::Left, 2), 3);
+        assert_eq!(pinned_slot(HubSide::Right, 0), 0);
+        assert_eq!(pinned_slot(HubSide::Right, 2), 2);
+    }
+
+    #[test]
+    fn a_dropdown_keeps_itself_inside_the_row_it_sits_in() {
+        let padding = dropdown_padding();
+
+        assert!(DROPDOWN_TEXT + padding[0] * 2 <= LIST_MIN_ROW);
+        assert_eq!(padding[1] * 2, LIST_ROW_INSET);
     }
 
     #[test]

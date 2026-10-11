@@ -162,11 +162,13 @@ one `xdg_popup` avoids competing close events and stops the hub button being exp
 stale child popup.
 
 A menu opened from an item already pinned to the panel is necessarily its own popup, parented to
-the panel window and anchored to that item's slot. The `...` button sits at the outer end of the
-strip — the end facing away from the screen centre — and pinned items grow inward from it. Which
-end that is comes from the panel's own `plugins_wings` and `plugins_center`, read once at startup:
-leading for the start wing, trailing for the end wing and for the centre, where a centred block has
-no fixed edge and half a button of drift is unavoidable.
+the panel window and anchored to that item's slot. The hub button sits at one end of the strip and
+the pinned items grow away from it. Which end is a stored preference — `HubSide` in
+`applet/appearance.rs`, the right by default — and not something inferred from where the panel
+happens to have put the applet. Deriving it from the panel's own `plugins_wings` and
+`plugins_center` came first and was dropped: a centred block has no edge to face away from, so that
+third case could only guess, and nothing let the user overrule the guess. One preference answers
+every panel, vertical ones included, where the two ends are the top and the bottom.
 
 The main popup is non-reactive and pin changes never issue a reposition request, so the compositor
 cannot reinterpret a stale anchor. They do not need to: the settings view edits a draft, so nothing
@@ -178,8 +180,8 @@ Panel bounds are a maximum on the major axis, not a mandatory size. Each instanc
 pinned items that fit its monitor's bounds, always reserving one slot for the hub; the rest stay in
 that instance's popup. Any number of items can be pinned — the panel already decides how many it
 shows, so a cap on the stored list would only refuse pins the user could reach anyway by unpinning
-something else. Pins and icon appearance live in `cosmic_config` and every instance watches them,
-so a change on one monitor reaches the others. Both are edited as drafts in the settings view and
+something else. Pins and appearance live in `cosmic_config` and every instance watches them, so a
+change on one monitor reaches the others. Both are edited as drafts in the settings view and
 committed together through Save.
 
 `HubLayout` computes the body height in Rust, because `Length::Fixed` ignores a container's
