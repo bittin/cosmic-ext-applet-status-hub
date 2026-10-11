@@ -366,6 +366,16 @@
     <keyword xml:lang="zh-CN">面板</keyword>
   </keywords>
   <releases>
+    <release type="stable" version="1.6.0" date="2026-10-11">
+      <description>
+        <p>This release lets you put the hub's own button on whichever side of the pinned items you prefer, and stops an application's help text standing in for its name.</p>
+        <ul>
+          <li>Adds a Button position setting to the Appearance section: the hub's button sits at the left or the right of the pinned items, whichever you choose, and stays there. It replaces a rule that read the panel's own configuration to work out which end faced away from the screen centre — a guess that had no answer at all for a centred panel and no way for you to overrule it. On a vertical panel the two choices are the top and the bottom.</li>
+          <li>Starts the button on the right. If the panel had been placing it on the left for you, choose Left once in settings and it stays.</li>
+          <li>Names a tray item by the first line of the title its application publishes. IBus puts its name and a sentence about middle-clicking the panel icon in that one field, which arrived as a single run-on label; now only the name shows. Any application with the same habit is covered.</li>
+        </ul>
+      </description>
+    </release>
     <release type="stable" version="1.5.13" date="2026-10-01">
       <description>
         <p>This patch finds icons the icon theme in use does not carry, reaches those snap packages publish, and gives the Save button the hover it was missing.</p>
