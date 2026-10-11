@@ -131,6 +131,13 @@ name.
 because applications use it for status text: Slack publishes "you have 1 notification" there and
 qBittorrent publishes its transfer speeds, neither of which is a name.
 
+Whichever field answers, only its first line becomes the label. A tray title is a name, and a name
+is one line; anything past a newline is prose the application had nowhere else to put. IBus is the
+clear case — it publishes no `ToolTip` at all, so its `Title` carries both "Painel IBus" and a
+sentence about middle-clicking the panel icon. Cutting at the newline fixes every application with
+that habit without a per-application exception, which is why the policy sits in `label` rather than
+in a table of names.
+
 ## Layer boundaries
 
 Read this before moving code between `core/` and `applet/`.

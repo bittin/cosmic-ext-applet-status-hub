@@ -103,6 +103,10 @@ fn app_name(id: &str) -> Option<&str> {
     (!name.eq_ignore_ascii_case(TOOLKIT_STATUS_ICON)).then_some(name)
 }
 
+fn first_line(text: &str) -> &str {
+    text.lines().next().unwrap_or(text).trim()
+}
+
 fn strip_instance_suffix(name: &str) -> String {
     let mut end = name.len();
     loop {
@@ -229,16 +233,18 @@ pub struct TrayItem {
 
 impl TrayItem {
     pub fn label(&self) -> &str {
-        if !self.title.is_empty() {
-            return &self.title;
+        let title = first_line(&self.title);
+        if !title.is_empty() {
+            return title;
         }
         if let Some(name) = app_name(&self.id).filter(|name| !name.is_empty()) {
             return name;
         }
-        if let Some(tooltip) = &self.tooltip
-            && !tooltip.title.is_empty()
-        {
-            return &tooltip.title;
+        if let Some(tooltip) = &self.tooltip {
+            let title = first_line(&tooltip.title);
+            if !title.is_empty() {
+                return title;
+            }
         }
         &self.key.id
     }
@@ -277,6 +283,39 @@ mod tests {
         item.tooltip = Some(tooltip("Download speed: 0 B/s"));
 
         assert_eq!(item.label(), "qBittorrent");
+    }
+
+    #[test]
+    fn a_title_that_carries_a_help_sentence_is_cut_back_to_the_name_on_its_first_line() {
+        let mut item = crate::core::testing::item("ibus", 1);
+        item.title = "Painel IBus\nVocê pode habilitar/desabilitar o menu de contexto clicando \
+             com o botão do meio do mouse no ícone do painel."
+            .to_owned();
+
+        assert_eq!(
+            item.label(),
+            "Painel IBus",
+            "a tray title names the application; anything past the newline describes it"
+        );
+    }
+
+    #[test]
+    fn a_title_of_nothing_but_blank_lines_leaves_the_naming_to_the_id() {
+        let mut item = crate::core::testing::item("ibus", 1);
+        item.title = "\n   \n".to_owned();
+        item.id = "ibus-ui-gtk3".to_owned();
+
+        assert_eq!(item.label(), "ibus-ui-gtk3");
+    }
+
+    #[test]
+    fn a_tooltip_standing_in_for_a_title_is_cut_back_the_same_way() {
+        let mut item = crate::core::testing::item("1password", 1);
+        item.title = String::new();
+        item.id = "chrome_status_icon_1".to_owned();
+        item.tooltip = Some(tooltip("1Password\r\n3 vaults unlocked"));
+
+        assert_eq!(item.label(), "1Password");
     }
 
     #[test]
